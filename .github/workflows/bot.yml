@@ -1,0 +1,58 @@
+name: rubika-chat-bot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chat-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install
+        run: pip install requests
+
+      - name: Restore state
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git clone https://mostafasabuoriai-blip:${GH_PAT}@github.com/mostafasabuoriai-blip/rubika-chat-state state
+          cp state/chat_bot.db . 2>/dev/null || echo "No database yet"
+
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY: mostafasabuoriai-blip/rubika-chat-bot
+          MAX_RUNTIME: "19800"
+          TRIGGER_NEXT: "1"
+        run: python main.py
+
+      - name: Save state
+        if: always()
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -d state/.git ]; then
+            cd state
+            cp ../chat_bot.db . 2>/dev/null || true
+            git config user.name "rubika-bot"
+            git config user.email "bot@local"
+            git remote set-url origin https://mostafasabuoriai-blip:${GH_PAT}@github.com/mostafasabuoriai-blip/rubika-chat-state
+            git add -A
+            git commit -m "sync $(date -u)" || echo "no changes"
+            git push
+          fi
