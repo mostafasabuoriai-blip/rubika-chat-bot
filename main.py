@@ -892,8 +892,9 @@ async def run():
                         await chatbot.handle_update(update)
                     except Exception as e:
                         print(f"[ERROR] {type(e).__name__}: {e}")
+                continue  # ⚡ بدون صبر — دوباره چک کن!
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)  # ⚡ فاصله چک: ۱ ثانیه
 
     except KeyboardInterrupt:
         print("\n👋 بات خاموش شد!")
