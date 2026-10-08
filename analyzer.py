@@ -64,26 +64,19 @@ def build_personality_prompt(answers: list, user_name: str = "",
 
 
 def build_friendship_prompt(answers_a: list, answers_b: list,
-                             profile_a: dict, profile_b: dict) -> str:
+                             profile_a: dict, profile_b: dict,
+                             relationship: str = "دوست") -> str:
     qa_a = "\n".join([f"سوال {i+1}: {ans}" for i, ans in enumerate(answers_a)])
     qa_b = "\n".join([f"سوال {i+1}: {ans}" for i, ans in enumerate(answers_b)])
 
     pa = profile_a.get("name") or "کاربر ۱"
-    if profile_a.get("age"):
-        pa += f"، {profile_a['age']} ساله"
-    if profile_a.get("gender"):
-        pa += f"، {profile_a['gender']}"
-
     pb = profile_b.get("name") or "کاربر ۲"
-    if profile_b.get("age"):
-        pb += f"، {profile_b['age']} ساله"
-    if profile_b.get("gender"):
-        pb += f"، {profile_b['gender']}"
+    rel = relationship or "دوست"
 
-    name_a = profile_a.get("name") or "نفر اول"
-    name_b = profile_b.get("name") or "نفر دوم"
+    return f"""تو یه روانشناس رابطه‌ی خودمونی هستی.
 
-    return f"""تو یه روانشناس رابطه‌ی خودمونی هستی. دو تا دوست به سوال‌های «رابطه‌ای» جواب دادن:
+⚠️ مهم: این دو نفر نسبت «{rel}» دارن — نه لزوماً دوست!
+تحلیل رو دقیقاً بر اساس همین نسبت بنویس.
 
 {pa} جواب داد:
 {qa_a}
@@ -100,32 +93,36 @@ def build_friendship_prompt(answers_a: list, answers_b: list,
 🤝 تیتر جذاب: (یه عنوان بامزه برای رابطه‌شون)
 
 📊 شخصیت‌ها:
-(۲-۳ خط — {name_a} چطور آدمیه و {name_b} چطور آدمیه)
+(۲-۳ خط — {pa} چطور آدمیه و {pb} چطور آدمیه)
 
 🟢 نقاط مشترک:
-• (۲-۳ مورد که شبیه همن)
+• (۲-۳ مورد)
 
 🔴 تفاوت‌ها:
-• (۲-۳ مورد — با طنز ملایم، اسم‌ها رو بگو)
+• (۲-۳ مورد — با طنز ملایم)
 
 ⚠️ هشدار رابطه:
-(چیزایی که باید حواسشون باشه تا به مشکل نخورن)
+(چیزایی که باید حواسشون باشه — بر اساس نسبت «{rel}»)
 
 💡 چطور رابطشون بهتر بشه:
-• (۲ پیشنهاد کاربردی)
+• (۲ پیشنهاد کاربردی — مناسب نسبت «{rel}»)
 
 🎯 پیشنهاد فعالیت مشترک:
-(یه فعالیت که با توجه به شخصیتشون، برای هر دو جذابه)
+(یه فعالیت مناسب نسبت «{rel}»)
 
 💬 جمله‌ی پایانی:
-(یه جمله‌ی بامزه و گرم درباره‌ی دوستیشون)
+(یه جمله‌ی بامزه و گرم)
 
 قوانین نوشتاری:
-- لحن خودمونی و بامزه
+- لحن رو بر اساس نسبت تنظیم کن:
+  • دوست → خودمونی و بامزه
+  • مادر/پدر و فرزند → محترمانه ولی گرم
+  • خواهر/برادر → بامزه و صمیمی
+  • زن و شوهر → عاشقانه ولی متعادل
+  • همکار → حرفه‌ای ولی خودمونی
 - اسم‌ها رو استفاده کن
-- هر بخش با ایموجی و عنوان جدا
+- هر بخش با ایموجی جدا
 - بین بخش‌ها خط خالی
-- انگار داری به هر دوشون می‌گی «ببینید چه رابطه‌ی باحالی دارین!»
 
 مستقیم متن رو بنویس — بدون توضیح اضافه."""
 
@@ -175,7 +172,7 @@ def call_groq(prompt: str) -> str:
 
 
 # ================================================================
-# توابع اصلی — رابط همون قبلیه!
+# توابع اصلی
 # ================================================================
 
 async def analyze_personality(answers: list, user_name: str = "",
@@ -185,6 +182,8 @@ async def analyze_personality(answers: list, user_name: str = "",
 
 
 async def analyze_friendship(answers_a: list, answers_b: list,
-                              profile_a: dict, profile_b: dict) -> str:
-    prompt = build_friendship_prompt(answers_a, answers_b, profile_a, profile_b)
+                              profile_a: dict, profile_b: dict,
+                              relationship: str = "دوست") -> str:
+    prompt = build_friendship_prompt(answers_a, answers_b,
+                                     profile_a, profile_b, relationship)
     return call_groq(prompt)
