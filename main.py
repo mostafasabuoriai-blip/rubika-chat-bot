@@ -946,7 +946,7 @@ async def run():
                         print(f"[ERROR] {type(e).__name__}: {e}")
                 continue
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
     except KeyboardInterrupt:
         print("\n👋 بات خاموش شد!")
