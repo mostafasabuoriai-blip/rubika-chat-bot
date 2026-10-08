@@ -11,11 +11,12 @@ class RubikaBot:
         self.base_url = f"https://botapi.rubika.ir/v3/{token}"
         self.next_offset_id = None
         self._last_error = None
+        self.session = requests.Session()  # ✅ اتصال دائمی — سرعت بیشتر!
 
     def _post(self, method: str, data: dict = None):
         url = f"{self.base_url}/{method}"
         try:
-            response = requests.post(
+            response = self.session.post(  # ✅ session.post — نه requests.post
                 url,
                 json=data or {},
                 headers={"Content-Type": "application/json"},
@@ -112,7 +113,7 @@ class RubikaBot:
             return None
 
         import json
-        print(f"[MEMBERSHIP] user={user_id[:15]}... result={json.dumps(result, ensure_ascii=False)[:300]}")
+        print(f"[MEMBERSHIP] {json.dumps(result, ensure_ascii=False)[:400]}")
 
         status = result.get("status", "")
 
