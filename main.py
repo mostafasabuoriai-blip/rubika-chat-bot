@@ -1,6 +1,6 @@
 """
 🤖 بات تحلیل شخصیت روبیکا
-+ پروفایل + چک عضویت کانال + سیستم صف
++ پروفایل + چک عضویت + نسبت رابطه
 """
 import asyncio
 import json
@@ -16,10 +16,6 @@ from questions import QUESTIONS, FRIENDSHIP_QUESTIONS
 import config
 
 
-# ================================================================
-# تنظیمات
-# ================================================================
-
 RESULT_FOOTER = (
     "\n\n━━━━━━━━━━━━━━━━━━━━\n"
     "🔗 این بات رو به دوستات معرفی کن!\n"
@@ -29,10 +25,6 @@ RESULT_FOOTER = (
 )
 
 
-# ================================================================
-# پارس هوشمند جواب‌ها
-# ================================================================
-
 def parse_answers(text: str) -> list:
     numbered = re.split(r'\s*[\n]+\s*(?=[۰-۹0-9]+[\.\-\)\s])', text.strip())
     numbered = [n.strip() for n in numbered if n.strip()]
@@ -41,10 +33,6 @@ def parse_answers(text: str) -> list:
     lines = [l.strip() for l in text.split("\n") if l.strip()]
     return [l for l in lines if len(l) > 1]
 
-
-# ================================================================
-# دیتابیس
-# ================================================================
 
 def init_db():
     conn = sqlite3.connect(config.DB_PATH)
@@ -57,6 +45,7 @@ def init_db():
             gender TEXT,
             state TEXT DEFAULT 'idle',
             friend_role TEXT,
+            relationship TEXT,
             answers TEXT,
             match_code TEXT,
             partner_id TEXT,
@@ -64,7 +53,7 @@ def init_db():
             created_at TEXT
         )
     """)
-    for col in ["age", "gender", "friend_role", "sender_id"]:
+    for col in ["age", "gender", "friend_role", "sender_id", "relationship"]:
         try:
             c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
         except sqlite3.OperationalError:
@@ -116,6 +105,27 @@ def friends_keypad():
         ],
         "resize_keyboard": True,
         "one_time_keyboard": False,
+    }
+
+
+def relationship_keypad():
+    return {
+        "rows": [
+            {"buttons": [{"id": "rel_friend", "type": "Simple",
+                          "button_text": "👫 دوست"}]},
+            {"buttons": [{"id": "rel_family", "type": "Simple",
+                          "button_text": "👨‍👩‍👧 مادر/پدر و فرزند"}]},
+            {"buttons": [{"id": "rel_sibling", "type": "Simple",
+                          "button_text": "👧👦 خواهر/برادر"}]},
+            {"buttons": [{"id": "rel_couple", "type": "Simple",
+                          "button_text": "💑 زن و شوهر"}]},
+            {"buttons": [{"id": "rel_colleague", "type": "Simple",
+                          "button_text": "💼 همکار"}]},
+            {"buttons": [{"id": "btn_cancel", "type": "Simple",
+                          "button_text": "❌ انصراف"}]},
+        ],
+        "resize_keyboard": True,
+        "one_time_keyboard": True,
     }
 
 
@@ -239,6 +249,7 @@ class ChatBot:
             result = await analyze_friendship(
                 request["answers_a"], request["answers_b"],
                 request["profile_a"], request["profile_b"],
+                request.get("relationship", "دوست"),
             )
             self.save_analysis(user_a_id, result, "friends", user_b_id)
             self.save_analysis(user_b_id, result, "friends", user_a_id)
@@ -277,14 +288,15 @@ class ChatBot:
             self.conn.commit()
             return self._empty_user(user_id)
         cols = ["user_id", "name", "age", "gender", "state",
-                "friend_role", "answers", "match_code", "partner_id",
-                "sender_id", "created_at"]
+                "friend_role", "relationship", "answers",
+                "match_code", "partner_id", "sender_id", "created_at"]
         return dict(zip(cols, row))
 
     def _empty_user(self, user_id):
         return {"user_id": user_id, "name": None, "age": None, "gender": None,
-                "state": "idle", "friend_role": None, "answers": None,
-                "match_code": None, "partner_id": None, "sender_id": None}
+                "state": "idle", "friend_role": None, "relationship": None,
+                "answers": None, "match_code": None, "partner_id": None,
+                "sender_id": None}
 
     def update_user(self, user_id, **kwargs):
         fields = ", ".join([f"{k}=?" for k in kwargs])
@@ -314,7 +326,7 @@ class ChatBot:
     def find_by_code(self, match_code):
         c = self.conn.cursor()
         c.execute(
-            "SELECT user_id, name, age, gender, answers FROM users "
+            "SELECT user_id, name, age, gender, answers, relationship FROM users "
             "WHERE match_code=? AND answers IS NOT NULL",
             (match_code,)
         )
@@ -339,17 +351,14 @@ class ChatBot:
     # ── چک عضویت ──
 
     def check_membership(self, chat_id):
-        """چک عضویت کاربر در کانال"""
         if not config.REQUIRE_CHANNEL_JOIN:
             return True
         if not config.CHANNEL_ID:
-            return True  # نمی‌تونیم چک کنیم — رد شو
-
+            return True
         user = self.get_user(chat_id)
         sender_id = user.get("sender_id") or ""
         if not sender_id:
-            return None  # sender_id نداریم
-
+            return None
         return self.bot.is_channel_member(config.CHANNEL_ID, sender_id)
 
     # ── نمایش پروفایل ──
@@ -392,7 +401,7 @@ class ChatBot:
                 "🧠 با من می‌تونی:\n"
                 "• بفهمی چه آدمی هستی\n"
                 "• نقاط قوت و ضعفت رو بشناسی\n"
-                "• ببینی چقدر با دوستات جوری 👥\n\n"
+                "• ببینی چقدر با اطرافیانت جوری 👥\n\n"
                 "از پایین شروع کن — ببین چی دراومد! 👇",
                 menu_keypad())
             print(f"[START] کاربر: {chat_id[:15]}...")
@@ -409,7 +418,6 @@ class ChatBot:
             if not text or not text.strip():
                 return
 
-            # ذخیره sender_id برای چک عضویت
             sender_id = msg.get("sender_id", "")
             if sender_id:
                 u = self.get_user(chat_id)
@@ -430,9 +438,9 @@ class ChatBot:
             elif text == "👥 تحلیل من و دوستم":
                 self.update_user(chat_id, state="friend_choosing")
                 await self.send(chat_id,
-                    "👥 حالت دوستانه!\n\n"
+                    "👥 حالت مقایسه!\n\n"
                     "دوست داری خودت تست بسازی و کد بگیری،\n"
-                    "یا کد دوستت رو وارد کنی؟",
+                    "یا کد طرف مقابل رو وارد کنی؟",
                     friends_keypad())
                 return
 
@@ -469,7 +477,6 @@ class ChatBot:
                         join_keypad())
                     return
 
-                # عضو شد ✓ → ادامه تحلیل
                 answers = json.loads(user["answers"] or "[]")
                 if not answers:
                     await self.send(chat_id, "مشکلی پیش اومد — دوباره تلاش کن!", menu_keypad())
@@ -477,8 +484,7 @@ class ChatBot:
 
                 self.update_user(chat_id, state="processing")
                 await self.send(chat_id,
-                    "⏳ در حال تحلیل شخصیتت... (۳۰-۹۰ ثانیه)\n\n"
-                    "یه ذره صبر کن! 🧠")
+                    "⏳ در حال تحلیل شخصیتت...\n\nیه ذره صبر کن! 🧠")
 
                 profile = self.get_profile(user)
                 await self.ai_queue.put({
@@ -497,6 +503,28 @@ class ChatBot:
 
             elif text == "🔢 وارد کردن کد دوست":
                 await self._btn_friend_code(chat_id, user)
+                return
+
+            # ═══════════ دکمه‌های نسبت ═══════════
+
+            elif text == "👫 دوست":
+                await self._set_relationship(chat_id, user, "دوست")
+                return
+
+            elif text == "👨‍👩‍👧 مادر/پدر و فرزند":
+                await self._set_relationship(chat_id, user, "مادر/پدر و فرزند")
+                return
+
+            elif text == "👧👦 خواهر/برادر":
+                await self._set_relationship(chat_id, user, "خواهر/برادر")
+                return
+
+            elif text == "💑 زن و شوهر":
+                await self._set_relationship(chat_id, user, "زن و شوهر")
+                return
+
+            elif text == "💼 همکار":
+                await self._set_relationship(chat_id, user, "همکار")
                 return
 
             # ═══════════ دکمه‌های پروفایل ═══════════
@@ -580,16 +608,13 @@ class ChatBot:
         self.update_user(chat_id, friend_role="creator")
 
         if user["name"]:
-            self.update_user(chat_id, state="asking_questions_friend",
+            # ✅ اول نسبت رو بپرس
+            self.update_user(chat_id, state="asking_relationship",
                              match_code=None, partner_id=None, answers=None)
-            questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
             await self.send(chat_id,
-                f"{user['name']} جان! 🌟\n\n"
-                f"این ۱۰ سوال درباره رابطه‌ت با دوستت:\n\n"
-                f"{questions_text}\n\n"
-                f"💬 هر جواب رو یه خط بنویس — همه رو با هم بفرست\n\n"
-                f"بعدش کد می‌گیری که برای دوستت بفرستی! 🔗",
-                cancel_keypad())
+                "👍 حالا بگو نسبت شما دو نفر چیه؟\n\n"
+                "این کمک می‌کنه تحلیل دقیق‌تر باشه!",
+                relationship_keypad())
         else:
             self.update_user(chat_id, state="asking_name_friend")
             await self.send(chat_id,
@@ -602,7 +627,7 @@ class ChatBot:
         if user["answers"]:
             self.update_user(chat_id, state="entering_code")
             await self.send(chat_id,
-                "🔢 کد دوستت رو بفرست (۴ رقم):",
+                "🔢 کد طرف مقابل رو بفرست (۴ رقم):",
                 cancel_keypad())
         else:
             if user["name"]:
@@ -614,13 +639,29 @@ class ChatBot:
                     f"اول باید خودت تست رو بدی:\n\n"
                     f"{questions_text}\n\n"
                     f"💬 هر جواب رو یه خط بنویس\n\n"
-                    f"بعدش کد دوستت رو ازت می‌پرسم! 🔢",
+                    f"بعدش کد طرف مقابل رو ازت می‌پرسم! 🔢",
                     cancel_keypad())
             else:
                 self.update_user(chat_id, state="asking_name_friend")
                 await self.send(chat_id,
-                    "اسمت چیه؟\n\n(بعدش تست می‌دی و کد دوستت رو وارد می‌کنی)",
+                    "اسمت چیه؟\n\n(بعدش تست می‌دی و کد رو وارد می‌کنی)",
                     cancel_keypad())
+
+    async def _set_relationship(self, chat_id, user, relationship):
+        """بعد از انتخاب نسبت → سوال‌ها"""
+        self.update_user(chat_id, relationship=relationship,
+                         state="asking_questions_friend",
+                         match_code=None, partner_id=None, answers=None)
+
+        questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
+        await self.send(chat_id,
+            f"عالی! 🌟\n\n"
+            f"نسبت «{relationship}» ثبت شد.\n\n"
+            f"این ۱۰ سوال رو درباره رابطه‌ت با اون جواب بده:\n\n"
+            f"{questions_text}\n\n"
+            f"💬 هر جواب رو یه خط بنویس — همه رو با هم بفرست\n\n"
+            f"بعدش کد می‌گیری که بفرستی براش! 🔗",
+            cancel_keypad())
 
     async def _show_history(self, chat_id, user):
         history = self.get_history(chat_id)
@@ -658,14 +699,14 @@ class ChatBot:
             self.update_user(chat_id, name=name, state="asking_questions_friend", answers=None)
 
             if role == "joiner":
-                extra = "\n\n💬 هر جواب رو یه خط بنویس\n\nبعدش کد دوستت رو ازت می‌پرسم! 🔢"
+                extra = "\n\n💬 هر جواب رو یه خط بنویس\n\nبعدش کد طرف مقابل رو ازت می‌پرسم! 🔢"
             else:
-                extra = "\n\n💬 هر جواب رو یه خط بنویس\n\nبعدش کد می‌گیری که بفرستی برای دوستت! 🔗"
+                extra = "\n\n💬 هر جواب رو یه خط بنویس\n\nبعدش نسبت رو ازت می‌پرسم! 👥"
 
             questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
             await self.send(chat_id,
                 f"سلام {name}! 🌟\n\n"
-                f"این ۱۰ سوال درباره رابطه‌ت با دوستت:\n\n"
+                f"این ۱۰ سوال رو درباره رابطه‌ت با اون جواب بده:\n\n"
                 f"{questions_text}\n\n{extra}",
                 cancel_keypad())
 
@@ -685,7 +726,6 @@ class ChatBot:
 
             # ── شخصی ──
             if state == "asking_questions":
-                # ✅ چک عضویت کانال
                 is_member = self.check_membership(chat_id)
 
                 if is_member is False:
@@ -697,7 +737,6 @@ class ChatBot:
                         join_keypad())
                     return
 
-                # عضو هست → ادامه تحلیل
                 self.update_user(chat_id, state="processing")
 
                 queue_pos = self.ai_queue.qsize()
@@ -707,8 +746,7 @@ class ChatBot:
                         f"حدود {queue_pos * 60} ثانیه صبر کن! 🙏")
                 else:
                     await self.send(chat_id,
-                        "⏳ در حال تحلیل شخصیتت... (۳۰-۹۰ ثانیه)\n\n"
-                        "یه ذره صبر کن! 🧠")
+                        "⏳ در حال تحلیل شخصیتت...\n\nیه ذره صبر کن! 🧠")
 
                 profile = self.get_profile(user)
                 await self.ai_queue.put({
@@ -729,22 +767,22 @@ class ChatBot:
                     await self.send(chat_id,
                         f"✅ جواب‌هات ثبت شد!\n\n"
                         f"🔗 کد تو: «{code}»\n\n"
-                        f"این کد رو برای دوستت بفرست. اونم باید:\n"
+                        f"این کد رو برای طرف مقابل بفرست. اونم باید:\n"
                         f"۱. این بات رو باز کنه\n"
                         f"۲. «👥 تحلیل من و دوستم» رو بزنه\n"
-                        f"۳. «🔢 وارد کردن کد دوست» رو انتخاب کنه\n"
+                        f"۳. «🔢 وارد کردن کد» رو انتخاب کنه\n"
                         f"۴. تست رو بده و کد تو رو وارد کنه\n\n"
                         f"بعد هر دوتون نتیجه می‌گیرید! 🎉\n\n"
-                        f"⏳ منتظر دوستت می‌مونم...")
+                        f"⏳ منتظر می‌مونم...")
 
                 elif role == "joiner":
                     self.update_user(chat_id, state="entering_code")
                     await self.send(chat_id,
                         "✅ جواب‌هات ثبت شد!\n\n"
-                        "🔢 حالا کد دوستت رو بفرست (۴ رقم):",
+                        "🔢 حالا کد طرف مقابل رو بفرست (۴ رقم):",
                         cancel_keypad())
 
-        # ── کد دوست ──
+        # ── کد ──
         elif state == "entering_code":
             await self._handle_code(chat_id, user, text)
 
@@ -787,14 +825,15 @@ class ChatBot:
         partner = self.find_by_code(code)
         if not partner:
             await self.send(chat_id,
-                "❌ این کد پیدا نشد! از دوستت کد درست رو بگیر.",
+                "❌ این کد پیدا نشد! کد درست رو بگیر.",
                 cancel_keypad())
             return
 
-        partner_id, p_name, p_age, p_gender, partner_answers_json = partner
+        partner_id, p_name, p_age, p_gender, partner_answers_json, p_relationship = partner
+
         if partner_id == chat_id:
             await self.send(chat_id,
-                "😅 این کد خودته! دوستت باید کد خودش رو بهت بده.",
+                "😅 این کد خودته!",
                 cancel_keypad())
             return
 
@@ -808,19 +847,19 @@ class ChatBot:
             return
 
         profile_a = self.get_profile(user)
-        profile_b = {"name": p_name or "دوست", "age": p_age or "", "gender": p_gender or ""}
+        profile_b = {"name": p_name or "کاربر ۲", "age": p_age or "", "gender": p_gender or ""}
 
         self.update_user(chat_id, partner_id=partner_id, state="processing")
         self.update_user(partner_id, partner_id=chat_id, state="processing")
 
         queue_pos = self.ai_queue.qsize()
         if queue_pos > 0:
-            await self.send(chat_id, f"⏳ {queue_pos} نفر قبل از شما در صفه 🙏")
+            await self.send(chat_id, f"⏳ {queue_pos} نفر قبل از شما 🙏")
         else:
             await self.send(chat_id, "⏳ در حال تحلیل شما دو نفر... 🤝")
 
         self.bot.send_message(partner_id,
-            "🎉 دوستت کد رو وارد کرد!\n⏳ در حال تحلیل شما دو نفر...")
+            "🎉 طرف مقابل کد رو وارد کرد!\n⏳ در حال تحلیل شما دو نفر...")
 
         await self.ai_queue.put({
             "type": "friends",
@@ -830,6 +869,7 @@ class ChatBot:
             "answers_b": partner_answers,
             "profile_a": profile_a,
             "profile_b": profile_b,
+            "relationship": p_relationship or "دوست",
         })
 
 
@@ -892,9 +932,9 @@ async def run():
                         await chatbot.handle_update(update)
                     except Exception as e:
                         print(f"[ERROR] {type(e).__name__}: {e}")
-                continue  # ⚡ بدون صبر — دوباره چک کن!
+                continue
 
-            await asyncio.sleep(1)  # ⚡ فاصله چک: ۱ ثانیه
+            await asyncio.sleep(1)
 
     except KeyboardInterrupt:
         print("\n👋 بات خاموش شد!")
