@@ -287,10 +287,22 @@ class ChatBot:
             )
             self.conn.commit()
             return self._empty_user(user_id)
-        cols = ["user_id", "name", "age", "gender", "state",
-                "friend_role", "relationship", "answers",
-                "match_code", "partner_id", "sender_id", "created_at"]
-        return dict(zip(cols, row))
+
+        # ✅ اسم واقعی ستون‌ها رو از دیتابیس بگیر — نه از حدس ما!
+        col_names = [desc[0] for desc in c.description]
+        data = dict(zip(col_names, row))
+
+        # مقادیر پیش‌فرض برای ستون‌های گم‌شده
+        defaults = {
+            "name": None, "age": None, "gender": None, "state": "idle",
+            "friend_role": None, "relationship": None, "answers": None,
+            "match_code": None, "partner_id": None, "sender_id": None,
+        }
+        for key, default in defaults.items():
+            if key not in data or data[key] is None:
+                data[key] = default
+
+        return data
 
     def _empty_user(self, user_id):
         return {"user_id": user_id, "name": None, "age": None, "gender": None,
