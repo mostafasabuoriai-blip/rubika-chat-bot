@@ -99,9 +99,7 @@ class RubikaBot:
     # ── چک عضویت در کانال ──
 
     def is_channel_member(self, channel_id: str, user_id: str):
-        """چک عضویت کاربر در کانال
-        True = عضوه | False = عضو نیست | None = نمی‌تونیم چک کنیم
-        """
+        """چک عضویت کاربر در کانال"""
         if not channel_id or not user_id:
             return None
 
@@ -113,13 +111,27 @@ class RubikaBot:
         if not result:
             return None
 
-        if result.get("status") == "OK":
-            member = result.get("data", {}).get("chat_member", {})
-            member_status = member.get("status", "")
-            # Member, Administrator, Creator = عضوه
-            return member_status in ("Creator", "Administrator", "Member")
+        # 🔍 Debug: ببین API چی برمی‌گردونه
+        import json
+        print(f"[MEMBERSHIP] {json.dumps(result, ensure_ascii=False)[:400]}")
 
-        return False
+        status = result.get("status", "")
+
+        if status == "OK":
+            data = result.get("data", {})
+            member = data.get("chat_member", {})
+
+            if member:
+                member_status = member.get("status", "")
+                # ✅ اگه member object داریم و left/kicked نیست → عضوه
+                if member_status.lower() in ("left", "kicked", "banned"):
+                    return False
+                return True
+
+            # member object خالی → عضو نیست
+            return False
+
+        return None
 
     # ── استخراج اطلاعات از آپدیت ──
 
