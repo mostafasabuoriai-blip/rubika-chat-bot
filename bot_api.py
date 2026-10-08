@@ -111,27 +111,23 @@ class RubikaBot:
         if not result:
             return None
 
-        # 🔍 Debug: ببین API چی برمی‌گردونه
         import json
-        print(f"[MEMBERSHIP] {json.dumps(result, ensure_ascii=False)[:400]}")
+        print(f"[MEMBERSHIP] user={user_id[:15]}... result={json.dumps(result, ensure_ascii=False)[:300]}")
 
         status = result.get("status", "")
 
         if status == "OK":
             data = result.get("data", {})
             member = data.get("chat_member", {})
-
             if member:
                 member_status = member.get("status", "")
-                # ✅ اگه member object داریم و left/kicked نیست → عضوه
                 if member_status.lower() in ("left", "kicked", "banned"):
                     return False
                 return True
-
-            # member object خالی → عضو نیست
             return False
 
-        return None
+        # ❌ INVALID_INPUT = کاربر عضو نیست
+        return False
 
     # ── استخراج اطلاعات از آپدیت ──
 
