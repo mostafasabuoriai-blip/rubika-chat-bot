@@ -39,6 +39,7 @@ jobs:
           GITHUB_REPOSITORY: mostafasabuoriai-blip/rubika-chat-bot
           MAX_RUNTIME: "19800"
           TRIGGER_NEXT: "1"
+          PYTHONUNBUFFERED: "1"
         run: python main.py
 
       - name: Save state
