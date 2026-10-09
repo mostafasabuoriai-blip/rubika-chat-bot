@@ -1,6 +1,6 @@
 """
 🤖 بات تحلیل شخصیت روبیکا
-+ پروفایل + چک عضویت + نسبت رابطه
++ پروفایل + چک عضویت + نسبت رابطه + سیستم صف
 """
 import asyncio
 import json
@@ -288,11 +288,9 @@ class ChatBot:
             self.conn.commit()
             return self._empty_user(user_id)
 
-        # ✅ اسم واقعی ستون‌ها رو از دیتابیس بگیر — نه از حدس ما!
         col_names = [desc[0] for desc in c.description]
         data = dict(zip(col_names, row))
 
-        # مقادیر پیش‌فرض برای ستون‌های گم‌شده
         defaults = {
             "name": None, "age": None, "gender": None, "state": "idle",
             "friend_role": None, "relationship": None, "answers": None,
@@ -489,23 +487,53 @@ class ChatBot:
                         join_keypad())
                     return
 
-                answers = json.loads(user["answers"] or "[]")
-                if not answers:
-                    await self.send(chat_id, "مشکلی پیش اومد — دوباره تلاش کن!", menu_keypad())
+                # ✅ عضو شد — ادامه بده
+
+                # حالت شخصی
+                if user.get("friend_role") is None:
+                    answers = json.loads(user["answers"] or "[]")
+                    if not answers:
+                        await self.send(chat_id, "مشکلی پیش اومد — دوباره تلاش کن!", menu_keypad())
+                        return
+
+                    self.update_user(chat_id, state="processing")
+                    await self.send(chat_id,
+                        "⏳ در حال تحلیل شخصیتت...\n\nیه ذره صبر کن! 🧠")
+
+                    profile = self.get_profile(user)
+                    await self.ai_queue.put({
+                        "type": "personal",
+                        "user_id": chat_id,
+                        "answers": answers,
+                        "profile": profile,
+                    })
                     return
 
-                self.update_user(chat_id, state="processing")
-                await self.send(chat_id,
-                    "⏳ در حال تحلیل شخصیتت...\n\nیه ذره صبر کن! 🧠")
+                # ✅ حالت دوستانه — joiner
+                elif user.get("friend_role") == "joiner":
+                    self.update_user(chat_id, state="entering_code")
+                    await self.send(chat_id,
+                        "✅ ممنون!\n\n"
+                        "🔢 حالا کد طرف مقابل رو بفرست (۴ رقم):",
+                        cancel_keypad())
+                    return
 
-                profile = self.get_profile(user)
-                await self.ai_queue.put({
-                    "type": "personal",
-                    "user_id": chat_id,
-                    "answers": answers,
-                    "profile": profile,
-                })
-                return
+                # ✅ حالت دوستانه — creator
+                elif user.get("friend_role") == "creator":
+                    code = str(random.randint(1000, 9999))
+                    self.update_user(chat_id, match_code=code, state="waiting_friend")
+                    await self.send(chat_id,
+                        f"✅ جواب‌هات ثبت شد!\n\n"
+                        f"🔗 کد تو: «{code}»\n\n"
+                        f"این کد رو بفرست براش!\n\n"
+                        f"اونم باید:\n"
+                        f"۱. این بات رو باز کنه\n"
+                        f"۲. «👥 تحلیل من و دوستم» بزنه\n"
+                        f"۳. «🔢 وارد کردن کد» بزنه\n"
+                        f"۴. تست بده و کد رو وارد کنه\n\n"
+                        f"🎉 نتیجه براتون میاد!",
+                        cancel_keypad())
+                    return
 
             # ═══════════ دکمه‌های دوستانه ═══════════
 
@@ -602,7 +630,8 @@ class ChatBot:
     async def _btn_personality(self, chat_id, user):
         if user["name"]:
             self.update_user(chat_id, state="asking_questions",
-                             match_code=None, partner_id=None, answers=None)
+                             match_code=None, partner_id=None, answers=None,
+                             friend_role=None)
             questions_text = "\n\n".join(QUESTIONS)
             await self.send(chat_id,
                 f"{user['name']} جان! 🌟\n\n"
@@ -613,14 +642,13 @@ class ChatBot:
         else:
             self.update_user(chat_id, state="asking_name")
             await self.send(chat_id,
-                "خوش اومدی! 🌟\n\nاسمت چیه؟ (می‌خوام تحلیلت شخصی‌تر باشه)",
+                "خوش اومدی! 🌟\n\nاسمت چیه؟ (اسم خودت رو بنویس!)",
                 cancel_keypad())
 
     async def _btn_friend_new(self, chat_id, user):
         self.update_user(chat_id, friend_role="creator")
 
         if user["name"]:
-            # ✅ اول نسبت رو بپرس
             self.update_user(chat_id, state="asking_relationship",
                              match_code=None, partner_id=None, answers=None)
             await self.send(chat_id,
@@ -630,7 +658,9 @@ class ChatBot:
         else:
             self.update_user(chat_id, state="asking_name_friend")
             await self.send(chat_id,
-                "خوش اومدی! 🌟\n\nاسمت چیه؟",
+                "خوش اومدی! 🌟\n\n"
+                "⚠️ اسم «خودت» رو بنویس — نه اسم دوستت!\n\n"
+                "اسمت چیه؟",
                 cancel_keypad())
 
     async def _btn_friend_code(self, chat_id, user):
@@ -656,11 +686,12 @@ class ChatBot:
             else:
                 self.update_user(chat_id, state="asking_name_friend")
                 await self.send(chat_id,
-                    "اسمت چیه؟\n\n(بعدش تست می‌دی و کد رو وارد می‌کنی)",
+                    "اسمت چیه؟\n\n"
+                    "⚠️ اسم «خودت» رو بنویس — نه اسم دوستت!\n\n"
+                    "(بعدش تست می‌دی و کد رو وارد می‌کنی)",
                     cancel_keypad())
 
     async def _set_relationship(self, chat_id, user, relationship):
-        """بعد از انتخاب نسبت → سوال‌ها"""
         self.update_user(chat_id, relationship=relationship,
                          state="asking_questions_friend",
                          match_code=None, partner_id=None, answers=None)
@@ -708,19 +739,23 @@ class ChatBot:
         elif state == "asking_name_friend":
             name = text.strip()[:30]
             role = user.get("friend_role") or "creator"
-            self.update_user(chat_id, name=name, state="asking_questions_friend", answers=None)
+            self.update_user(chat_id, name=name, state="asking_relationship" if role == "creator" else "asking_questions_friend", answers=None)
 
             if role == "joiner":
-                extra = "\n\n💬 هر جواب رو یه خط بنویس\n\nبعدش کد طرف مقابل رو ازت می‌پرسم! 🔢"
+                questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
+                await self.send(chat_id,
+                    f"سلام {name}! 🌟\n\n"
+                    f"این ۱۰ سوال رو درباره رابطه‌ت با اون جواب بده:\n\n"
+                    f"{questions_text}\n\n"
+                    f"💬 هر جواب رو یه خط بنویس\n\n"
+                    f"بعدش کد طرف مقابل رو ازت می‌پرسم! 🔢",
+                    cancel_keypad())
             else:
-                extra = "\n\n💬 هر جواب رو یه خط بنویس\n\nبعدش نسبت رو ازت می‌پرسم! 👥"
-
-            questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
-            await self.send(chat_id,
-                f"سلام {name}! 🌟\n\n"
-                f"این ۱۰ سوال رو درباره رابطه‌ت با اون جواب بده:\n\n"
-                f"{questions_text}\n\n{extra}",
-                cancel_keypad())
+                await self.send(chat_id,
+                    f"سلام {name}! 🌟\n\n"
+                    f"حالا بگو نسبت شما دو نفر چیه؟\n\n"
+                    f"این کمک می‌کنه تحلیل دقیق‌تر باشه!",
+                    relationship_keypad())
 
         # ── جواب‌های تست ──
         elif state in ("asking_questions", "asking_questions_friend"):
@@ -771,6 +806,18 @@ class ChatBot:
             # ── دوستانه ──
             elif state == "asking_questions_friend":
                 role = user.get("friend_role") or "creator"
+
+                # ✅ چک عضویت توی حالت دوستانه
+                is_member = self.check_membership(chat_id)
+
+                if is_member is False:
+                    self.update_user(chat_id, state="waiting_join")
+                    await self.send(chat_id,
+                        f"📢 برای دیدن نتیجه، اول عضو کانال ما شو!\n\n"
+                        f"🔗 {config.CHANNEL_LINK}\n\n"
+                        f"عضو که شدی، دکمه پایین رو بزن 👇",
+                        join_keypad())
+                    return
 
                 if role == "creator":
                     code = str(random.randint(1000, 9999))
