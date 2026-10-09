@@ -1,6 +1,6 @@
 """
 🤖 بات تحلیل شخصیت روبیکا
-+ پروفایل + چک عضویت + نسبت رابطه + سیستم صف
++ پروفایل + چک عضویت + نسبت + سوال‌های رندوم + تاریخچه خلاصه
 """
 import asyncio
 import json
@@ -12,7 +12,7 @@ from datetime import datetime
 
 from bot_api import RubikaBot
 from analyzer import analyze_personality, analyze_friendship
-from questions import QUESTIONS, FRIENDSHIP_QUESTIONS
+from questions import get_personal_questions, get_relationship_questions
 import config
 
 
@@ -328,7 +328,7 @@ class ChatBot:
         c = self.conn.cursor()
         c.execute(
             "SELECT result, type, created_at FROM analyses "
-            "WHERE user_id=? ORDER BY id DESC LIMIT 3",
+            "WHERE user_id=? ORDER BY id DESC LIMIT 5",
             (user_id,)
         )
         return c.fetchall()
@@ -487,7 +487,7 @@ class ChatBot:
                         join_keypad())
                     return
 
-                # ✅ عضو شد — ادامه بده
+                # ✅ عضو شد
 
                 # حالت شخصی
                 if user.get("friend_role") is None:
@@ -632,7 +632,8 @@ class ChatBot:
             self.update_user(chat_id, state="asking_questions",
                              match_code=None, partner_id=None, answers=None,
                              friend_role=None)
-            questions_text = "\n\n".join(QUESTIONS)
+            # ✅ سوال‌های رندوم
+            questions_text = "\n\n".join(get_personal_questions(10))
             await self.send(chat_id,
                 f"{user['name']} جان! 🌟\n\n"
                 f"این ۱۰ سوال رو جواب بده:\n\n"
@@ -659,7 +660,7 @@ class ChatBot:
             self.update_user(chat_id, state="asking_name_friend")
             await self.send(chat_id,
                 "خوش اومدی! 🌟\n\n"
-                "⚠️ اسم «خودت» رو بنویس — نه اسم دوستت!\n\n"
+                "⚠️ اسم «خودت» رو بنویس — نه اسم طرف مقابل!\n\n"
                 "اسمت چیه؟",
                 cancel_keypad())
 
@@ -673,21 +674,30 @@ class ChatBot:
                 cancel_keypad())
         else:
             if user["name"]:
-                self.update_user(chat_id, state="asking_questions_friend",
-                                 match_code=None, partner_id=None, answers=None)
-                questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
-                await self.send(chat_id,
-                    f"{user['name']} جان! 🌟\n\n"
-                    f"اول باید خودت تست رو بدی:\n\n"
-                    f"{questions_text}\n\n"
-                    f"💬 هر جواب رو یه خط بنویس\n\n"
-                    f"بعدش کد طرف مقابل رو ازت می‌پرسم! 🔢",
-                    cancel_keypad())
+                # ✅ نسبت رو بپرس اگه نداره
+                if user.get("relationship"):
+                    self.update_user(chat_id, state="asking_questions_friend",
+                                     match_code=None, partner_id=None, answers=None)
+                    # ✅ سوال‌های رندوم بر اساس نسبت
+                    rel = user.get("relationship") or "دوست"
+                    questions_text = "\n\n".join(get_relationship_questions(rel, 10))
+                    await self.send(chat_id,
+                        f"{user['name']} جان! 🌟\n\n"
+                        f"اول باید خودت تست رو بدی:\n\n"
+                        f"{questions_text}\n\n"
+                        f"💬 هر جواب رو یه خط بنویس\n\n"
+                        f"بعدش کد طرف مقابل رو ازت می‌پرسم! 🔢",
+                        cancel_keypad())
+                else:
+                    self.update_user(chat_id, state="asking_relationship")
+                    await self.send(chat_id,
+                        "قبل از تست، بگو نسبت شما دو نفر چیه؟",
+                        relationship_keypad())
             else:
                 self.update_user(chat_id, state="asking_name_friend")
                 await self.send(chat_id,
                     "اسمت چیه؟\n\n"
-                    "⚠️ اسم «خودت» رو بنویس — نه اسم دوستت!\n\n"
+                    "⚠️ اسم «خودت» رو بنویس — نه اسم طرف مقابل!\n\n"
                     "(بعدش تست می‌دی و کد رو وارد می‌کنی)",
                     cancel_keypad())
 
@@ -696,14 +706,14 @@ class ChatBot:
                          state="asking_questions_friend",
                          match_code=None, partner_id=None, answers=None)
 
-        questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
+        # ✅ سوال‌های رندوم بر اساس نسبت
+        questions_text = "\n\n".join(get_relationship_questions(relationship, 10))
         await self.send(chat_id,
             f"عالی! 🌟\n\n"
             f"نسبت «{relationship}» ثبت شد.\n\n"
-            f"این ۱۰ سوال رو درباره رابطه‌ت با اون جواب بده:\n\n"
+            f"این ۱۰ سوال رو جواب بده:\n\n"
             f"{questions_text}\n\n"
-            f"💬 هر جواب رو یه خط بنویس — همه رو با هم بفرست\n\n"
-            f"بعدش کد می‌گیری که بفرستی براش! 🔗",
+            f"💬 هر جواب رو یه خط بنویس — همه رو با هم بفرست",
             cancel_keypad())
 
     async def _show_history(self, chat_id, user):
@@ -713,12 +723,22 @@ class ChatBot:
                 "هنوز تحالیلی نداری! 🤷\n\nاول یه تست بده:",
                 menu_keypad())
         else:
-            await self.send(chat_id, f"📜 {len(history)} تحلیل اخیرت:\n")
+            # ✅ فقط عنوان و تاریخ — تمیز و خوانا
+            msg = "📜 آخرین تحلیل‌هات:\n\n"
             for i, (result, rtype, date) in enumerate(history, 1):
                 emoji = "👥" if rtype == "friends" else "🧠"
-                await self.send(chat_id,
-                    f"{emoji} تحلیل {i} — {date[:10]}\n\n{result}\n")
-            await self.send(chat_id, "همه‌ی تحلیل‌هات ⬆️", menu_keypad())
+                # عنوان رو پیدا کن
+                title = ""
+                for line in result.split("\n"):
+                    if "🎭" in line or "🤝" in line:
+                        title = line.strip()
+                        break
+                if not title:
+                    title = result[:40] + "..."
+                msg += f"{emoji} {i}. {title}\n📅 {date[:10]}\n\n"
+
+            msg += "💡 برای دیدن تحلیل کامل، دوباره تست بده!"
+            await self.send(chat_id, msg, menu_keypad())
 
     # ═══════════ متن عادی ═══════════
 
@@ -727,7 +747,8 @@ class ChatBot:
         if state == "asking_name":
             name = text.strip()[:30]
             self.update_user(chat_id, name=name, state="asking_questions", answers=None)
-            questions_text = "\n\n".join(QUESTIONS)
+            # ✅ سوال رندوم
+            questions_text = "\n\n".join(get_personal_questions(10))
             await self.send(chat_id,
                 f"سلام {name}! 🌟\n\n"
                 f"این ۱۰ سوال رو جواب بده:\n\n"
@@ -742,14 +763,21 @@ class ChatBot:
             self.update_user(chat_id, name=name, state="asking_relationship" if role == "creator" else "asking_questions_friend", answers=None)
 
             if role == "joiner":
-                questions_text = "\n\n".join(FRIENDSHIP_QUESTIONS)
-                await self.send(chat_id,
-                    f"سلام {name}! 🌟\n\n"
-                    f"این ۱۰ سوال رو درباره رابطه‌ت با اون جواب بده:\n\n"
-                    f"{questions_text}\n\n"
-                    f"💬 هر جواب رو یه خط بنویس\n\n"
-                    f"بعدش کد طرف مقابل رو ازت می‌پرسم! 🔢",
-                    cancel_keypad())
+                # ✅ نسبت رو بپرس اگه نداره
+                if user.get("relationship"):
+                    rel = user.get("relationship")
+                    questions_text = "\n\n".join(get_relationship_questions(rel, 10))
+                    await self.send(chat_id,
+                        f"سلام {name}! 🌟\n\n"
+                        f"این ۱۰ سوال رو جواب بده:\n\n"
+                        f"{questions_text}\n\n"
+                        f"💬 هر جواب رو یه خط بنویس\n\n"
+                        f"بعدش کد طرف مقابل رو ازت می‌پرسم! 🔢",
+                        cancel_keypad())
+                else:
+                    await self.send(chat_id,
+                        "حالا بگو نسبت شما دو نفر چیه؟",
+                        relationship_keypad())
             else:
                 await self.send(chat_id,
                     f"سلام {name}! 🌟\n\n"
