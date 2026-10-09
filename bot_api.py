@@ -72,15 +72,25 @@ class RubikaBot:
     def skip_old_updates(self):
         """آپدیت‌های قدیمی رو رد کن — فقط جدیدا رو گوش بده"""
         total = 0
-        while True:
+        for _ in range(50):  # حداکثر ۵۰ بار تلاش
             updates = self.get_updates()
             if not updates:
                 break
             total += len(updates)
-            if total > 200:
-                break
-        return total
+            # ✅ هر بار که آپدیت مصرف می‌کنیم، صبر کوتاه
+            import time
+            time.sleep(0.1)
 
+        # ✅ یه بار دیگه چک کن — مطمئن شیم تموم شده
+        time.sleep(1)
+        for _ in range(5):
+            updates = self.get_updates()
+            if not updates:
+                break
+            total += len(updates)
+            time.sleep(0.2)
+
+        return total
     # ── ارسال پیام ──
 
     def send_message(self, chat_id: str, text: str,
